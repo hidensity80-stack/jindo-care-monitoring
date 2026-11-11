@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>진도 통합돌봄 시스템 (시제품)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><div class="mark">진도</div><div><h1>진도군 통합돌봄 모니터링</h1><p id="brandsub"></p></div></div>
+  <nav class="tabs" role="tablist" aria-label="화면 선택" id="tabs"></nav>
+  <div class="clock">
+    <span class="live" id="livedot"></span><span id="clk"></span>
+    <button class="btn sm" data-act="play" id="playbtn">시간 멈춤</button>
+    <span id="who"></span>
+    <button class="btn sm" data-act="reset" title="체험 데이터를 처음 상태로">초기화</button>
+  </div>
+</header>
+<div class="proto">시제품입니다. 모든 이름과 수치는 가상의 예시이고, 오늘 현황은 시각이 흐르는 시뮬레이션입니다. 바꾼 내용은 이 브라우저에만 저장됩니다.</div>
+<div id="banner"></div>
+<main id="view"></main>
+<div id="drawerbox"></div>
+<div id="modalbox"></div>
+<div id="sheetbox"></div>
+<script src="assets/app.js"></script>
+</body>
+</html>
