@@ -173,6 +173,7 @@ Object.entries(STATE.userMods).forEach(([l, m]) => {
   const nu = STATE.newUsers.find(n => n.login === l), wid = nu ? nu.wid : (/^w\d{3}$/.test(l) ? +l.slice(1) - 1 : null);
   if (wid != null && W[wid]) W[wid].active = false;
 });
+aiInit(); // AI 설정·당직 상태 (ai.js)
 function save() { STATE.rev++; RK.at = -1; try { localStorage.setItem(SKEY, JSON.stringify(STATE)); } catch (e) { } }
 function audit(action, target = '', detail = '') { STATE.audit.unshift({ at: nowStr(), login: STATE.session || '-', action, target, detail }); if (STATE.audit.length > 500) STATE.audit.length = 500; }
 const nid = () => ++STATE.nextId;
@@ -315,7 +316,7 @@ function findSched(k, dnHint) { for (const dn of [dnHint, +k.split('_')[0]]) { c
 const VS = { tab: 'day', month: TODAY.getMonth(), mmode: 'all', msvc: 1, mperson: null, date: TODAYN, dsub: 'people', wsvc: 1, drawer: null, pym: NEXT_YM, aym: NEXT_YM, pcell: null, uq: '', aq: '', aa: '', f: { q: '', emd: '', svc: '', st: '', all: false, sort: 'risk' } };
 const view = document.getElementById('view');
 const TABS = {
-  admin: [['day', '일간'], ['month', '월간'], ['year', '연간'], ['care', '집중관리'], ['discharge', '퇴원지원'], ['approve', '계획 승인'], ['accounts', '계정 관리'], ['audit', '접속기록']],
+  admin: [['day', '일간'], ['month', '월간'], ['year', '연간'], ['care', '집중관리'], ['discharge', '퇴원지원'], ['approve', '계획 승인'], ['accounts', '계정 관리'], ['audit', '접속기록'], ['aiset', 'AI 설정']],
   central: [['day', '일간'], ['month', '월간'], ['year', '연간'], ['care', '집중관리'], ['discharge', '퇴원지원'], ['approve', '계획 승인'], ['accounts', '계정 관리']],
   viewer: [['day', '일간'], ['month', '월간'], ['year', '연간'], ['care', '집중관리'], ['discharge', '퇴원지원']],
   org: [['day', '오늘 현황'], ['plan', '월간 계획'], ['month', '월간 실적'], ['year', '연간'], ['accounts', '수행자 계정']],
@@ -331,6 +332,7 @@ const HELP = {
   approve: { central: '수행기관이 제출한 계획을 확인하고 승인하거나 사유를 적어 반려합니다. 아래에서 확정된 일정의 변경 요청도 처리합니다.' },
   accounts: { central: '수행기관 관리자와 조회 전용 계정을 만듭니다. 처음 비밀번호는 한 번만 보이니 당사자에게 전달하세요.', org: '우리 기관 현장 수행자 계정을 만들고 관리합니다. 퇴사한 수행자는 "사용 정지"하고, 남은 일정은 월간 계획의 "담당자 일괄 이관"으로 넘기세요.' },
   audit: { admin: '누가 언제 어떤 정보를 보고 바꿨는지 기록입니다. 건강정보 열람 기록은 2년 이상 보관합니다.' },
+  aiset: { admin: 'AI 연결(모델·주소·키)을 추가하거나 바꾸고, 기능별로 어떤 모델을 쓸지 정합니다. 개인정보 전송이 금지된 연결은 개인정보가 들어가는 기능에 고를 수 없습니다. AI를 꺼도 규칙 기반 감시는 계속됩니다.' },
   field: { worker: '방문하면 [방문 시작], 끝나면 [종료·상태 입력]을 누르세요. 위급하면 먼저 119에 신고한 뒤 [긴급]을 눌러 알려 주세요.' },
 };
 function helpStrip(tab) {
@@ -344,9 +346,9 @@ function drawChrome() {
   document.getElementById('tabs').hidden = !me || onApply();
   document.getElementById('who').hidden = false;
   document.getElementById('tabs').innerHTML = me ? (TABS[me.role] || []).map(([k, l]) => `<button role="tab" data-act="tab" data-tab="${k}" aria-selected="${VS.tab === k}">${l}<span class="cnt" id="cnt-${k}" hidden></span></button>`).join('') : '';
-  document.getElementById('who').innerHTML = me ? `<span class="userchip"><b>${esc(me.name)}</b> · ${ROLE_LABEL[me.role]}</span><button class="btn sm" data-act="mypw">비밀번호</button><button class="btn sm" data-act="logout">로그아웃</button>` : '';
+  document.getElementById('who').innerHTML = me ? `${aiHeadBtn()}<span class="userchip"><b>${esc(me.name)}</b> · ${ROLE_LABEL[me.role]}</span><button class="btn sm" data-act="mypw">비밀번호</button><button class="btn sm" data-act="logout">로그아웃</button>` : '';
   document.getElementById('brandsub').textContent = !me ? '로그인하세요' : me.role === 'org' ? `${SV[me.sid].vendor}` : me.role === 'worker' ? `${SV[me.sid].name} · ${SV[me.sid].role}` : '7개 서비스 · 수혜자 600명 · 담당자 210명';
-  drawBanner();
+  drawBanner(); aiChrome();
 }
 function setBadge(tab, n) { const el = document.getElementById('cnt-' + tab); if (el) { el.textContent = n || ''; el.hidden = !n; } }
 const onApply = () => location.hash === '#apply';
@@ -364,7 +366,7 @@ function drawBanner() {
   if (fresh.length) { fresh.forEach(x => { SEEN.add(x.id); FLASH.set(x.id, Date.now()); }); toast(`새 퇴원환자 지원 신청 ${fresh.length}건이 들어왔습니다`); }
   const isNew = x => FLASH.has(x.id) && Date.now() - FLASH.get(x.id) < 5000;
   const dcHtml = dcNew.map(x => `<div class="dcal${isNew(x) ? ' new' : ''}" role="status"><b>퇴원지원 신청</b><span>${esc(x.name)} (${esc(x.age)}세, ${esc(x.emd)}) · ${esc(x.hosp || '')} · ${ddLabel(x.ddn)}<small>${esc(x.at)} · ${esc(x.via)} · ${esc(x.kind || '')} ${esc(x.by)} · ${esc(x.needs.join(', '))}</small></span><span class="emg-a">${me.role !== 'viewer' ? `<button class="btn sm pri" data-act="dc-open" data-id="${esc(x.id)}">처리하기</button>` : `<button class="btn sm" data-act="dc-open" data-id="${esc(x.id)}">보기</button>`}</span></div>`).join('');
-  b.innerHTML = dcHtml + list.map(m => { const r = R[m.rid]; return `<div class="emg" role="alert"><b>긴급</b><span>${esc(m.at)} · ${esc(r.name)} (${EMD[r.e]}) · ${esc(SV[m.s].short)} · ${esc(m.kind)}${m.note ? ` — ${esc(m.note)}` : ''}<small>신고 ${esc((findUser(m.by) || {}).name || m.by)}${m.st === '확인중' ? ` · 확인 중: ${esc(m.memo || '')}` : ''}</small></span><span class="emg-a"><button class="btn sm" data-act="open" data-rid="${m.rid}">어르신 보기</button>${me.role !== 'viewer' ? `<button class="btn sm pri" data-act="emg" data-id="${m.id}">조치 입력</button>` : ''}</span></div>`; }).join('');
+  b.innerHTML = aiBannerHtml() + dcHtml + list.map(m => { const r = R[m.rid]; return `<div class="emg" role="alert"><b>긴급</b><span>${esc(m.at)} · ${esc(r.name)} (${EMD[r.e]}) · ${esc(SV[m.s].short)} · ${esc(m.kind)}${m.note ? ` — ${esc(m.note)}` : ''}<small>신고 ${esc((findUser(m.by) || {}).name || m.by)}${m.st === '확인중' ? ` · 확인 중: ${esc(m.memo || '')}` : ''}</small></span><span class="emg-a"><button class="btn sm" data-act="open" data-rid="${m.rid}">어르신 보기</button>${me.role !== 'viewer' ? `<button class="btn sm pri" data-act="emg" data-id="${m.id}">조치 입력</button>` : ''}</span></div>`; }).join('');
   if (me.role === 'central' || me.role === 'admin') setBadge('approve', Object.values(STATE.plans).filter(p => p.st === '제출').length + STATE.crs.filter(c => c.st === '대기').length);
   if (me.role === 'org') { const s = planOf(me.sid, NEXT_YM).st; setBadge('plan', s === '작성중' || s === '반려' ? '!' : 0); }
   if (me.role !== 'org' && me.role !== 'worker') setBadge('care', [...risk().values()].filter(o => o.level === 3).length);
@@ -385,7 +387,7 @@ function setTab(t) {
 function render() {
   if (onApply()) { renderApply(); return; }
   if (!ME()) { renderLogin(); return; }
-  ({ year: renderYear, month: renderMonth, day: renderDay, care: renderCare, discharge: renderDischarge, plan: renderPlan, approve: renderApprove, accounts: renderAccounts, audit: renderAudit, field: renderField })[VS.tab]();
+  ({ year: renderYear, month: renderMonth, day: renderDay, care: renderCare, discharge: renderDischarge, plan: renderPlan, approve: renderApprove, accounts: renderAccounts, audit: renderAudit, aiset: renderAISet, field: renderField })[VS.tab]();
   const hs = helpStrip(VS.tab); if (hs) view.insertAdjacentHTML('afterbegin', hs);
   if (ROLE() === 'viewer') view.querySelectorAll('select[data-care],input[data-care],select[data-rep],input[data-repmemo]').forEach(el => { el.disabled = true; });
   updateClock(); drawBanner();
@@ -425,7 +427,7 @@ function doLogin(login, pw) {
   VS.tab = (TABS[u.role] || [['day']])[0][0]; VS.pcell = null; VS.drawer = null;
   if (u.role === 'org') { VS.msvc = VS.wsvc = u.sid; VS.f.svc = ''; } else { VS.msvc = VS.wsvc = 1; }
   drawChrome(); setTab(VS.tab);
-  if (u.must) pwModal(true);
+  if (u.must) pwModal(true); else aiOnLogin(u);
 }
 
 /* ---------- 연간 ---------- */
@@ -850,7 +852,7 @@ function renderAccounts() {
 }
 
 /* ---------- 접속기록 ---------- */
-const ACTION_LABEL = { login: '로그인', login_fail: '로그인 실패', logout: '로그아웃', view_recipient: '어르신 정보 조회', visit_start: '방문 시작', visit_end: '방문 종료', visit_cancel: '방문 취소', emergency: '긴급 신고', emergency_handle: '긴급 조치', change_request: '변경 요청', change_decide: '변경 요청 처리', plan_draft: '초안 생성', plan_submit: '계획 제출', plan_decide: '계획 승인·반려', schedule_update: '일정 수정', schedule_delete: '일정 빼기', schedule_add: '일정 추가', bulk_move: '일괄 이동', bulk_transfer: '일괄 이관', care_update: '집중관리 처리', report: '퇴원지원 신청', report_status: '퇴원지원 처리', user_create: '계정 생성', user_reset: '비밀번호 초기화', user_activate: '계정 사용', user_deactivate: '계정 정지', password_change: '비밀번호 변경' };
+const ACTION_LABEL = { login: '로그인', login_fail: '로그인 실패', logout: '로그아웃', view_recipient: '어르신 정보 조회', visit_start: '방문 시작', visit_end: '방문 종료', visit_cancel: '방문 취소', emergency: '긴급 신고', emergency_handle: '긴급 조치', change_request: '변경 요청', change_decide: '변경 요청 처리', plan_draft: '초안 생성', plan_submit: '계획 제출', plan_decide: '계획 승인·반려', schedule_update: '일정 수정', schedule_delete: '일정 빼기', schedule_add: '일정 추가', bulk_move: '일괄 이동', bulk_transfer: '일괄 이관', care_update: '집중관리 처리', report: '퇴원지원 신청', report_status: '퇴원지원 처리', user_create: '계정 생성', user_reset: '비밀번호 초기화', user_activate: '계정 사용', user_deactivate: '계정 정지', password_change: '비밀번호 변경', ai_config: 'AI 설정 변경', ai_test: 'AI 연결 시험', ai_duty_on: 'AI 당직 시작', ai_duty_off: 'AI 당직 종료', ai_action: 'AI 당직 조치', ai_handoff: 'AI → 담당자 인계', ai_ack: 'AI 인계 확인', ai_chat: 'AI 도우미 사용' };
 function renderAudit() {
   const acts = [...new Set(STATE.audit.map(l => l.action))];
   const rows = STATE.audit.filter(l => (!VS.aq || l.login.includes(VS.aq) || l.target.includes(VS.aq)) && (!VS.aa || l.action === VS.aa));
@@ -962,12 +964,12 @@ document.addEventListener('click', e => {
         <ol class="dcprog">${DC_STEPS.map((s, i) => `<li class="${i < si ? 'done' : i === si ? 'cur' : ''}">${s}</li>`).join('')}</ol>
         ${ro ? `<div class="mact"><button class="btn" data-act="mclose">닫기</button></div>` : `<form class="form" id="dcform" data-id="${esc(x.id)}">
           <div class="full checks">${DC_STEPS.slice(1).map((s, i) => `<label><input type="radio" name="dcst" value="${s}" ${(x.st === '접수' ? i === 0 : s === x.st) ? 'checked' : ''}> ${s}</label>`).join('')}</div>
-          <label class="full">처리 내용<textarea id="dc-memo" rows="3" required placeholder="예: 보호자와 통화, 11/13 퇴원 당일 가사·식사 연계 예정">${esc(x.memo || '')}</textarea></label>
+          <label class="full">처리 내용 ${STATE.ai && STATE.ai.enabled ? `<button type="button" class="btn sm aidraftbtn" data-act="ai-draft" data-kind="dc" data-id="${esc(x.id)}">AI 초안</button>` : ''}<textarea id="dc-memo" rows="3" required placeholder="예: 보호자와 통화, 11/13 퇴원 당일 가사·식사 연계 예정">${esc(x.memo || '')}</textarea></label>
           <div class="full mact"><button type="button" class="btn" data-act="mclose">나중에</button><button type="button" class="btn" data-act="dc-tab">퇴원지원 화면에서 보기</button><button class="btn pri" type="submit">저장</button></div></form>`}`);
       break;
     }
     case 'dc-tab': mclose(); VS.dcf = 'open'; setTab('discharge'); break;
-    case 'logout': audit('logout', STATE.session); STATE.session = null; save(); VS.drawer = null; renderDrawer(); closeSheet(); mclose(); drawChrome(); render(); break;
+    case 'logout': VS.aichat = []; VS.aiopen = false; audit('logout', STATE.session); STATE.session = null; save(); VS.drawer = null; renderDrawer(); closeSheet(); mclose(); drawChrome(); render(); break;
     case 'reset': modal('<h2>체험 데이터를 처음 상태로 되돌릴까요?</h2><p>이 브라우저에 저장된 기록·계획 수정·계정·접속기록이 모두 지워지고 처음 예시 데이터로 돌아갑니다.</p><div class="mact"><button class="btn" data-act="mclose">취소</button><button class="btn pri" data-act="reset-go">처음 상태로</button></div>'); break;
     case 'reset-go': STATE = freshState(); save(); try { history.replaceState(null, '', location.pathname + location.search); } catch (er) { } location.reload(); break;
     case 'tab': setTab(b.dataset.tab); break;
@@ -993,7 +995,7 @@ document.addEventListener('click', e => {
     case 'caretoggle': { const id = +b.dataset.rid; if (STATE.care[id]) { delete STATE.care[id]; toast('집중관리 지정을 해제했습니다'); } else { STATE.care[id] = { st: '미확인', memo: '', manual: true }; toast('집중관리 대상으로 지정했습니다'); } audit('care_update', R[id].code, STATE.care[id] ? '지정' : '해제'); save(); renderDrawer(); if (VS.tab === 'care') render(); break; }
     case 'toperson': VS.mperson = +b.dataset.rid; VS.mmode = 'person'; VS.drawer = null; renderDrawer(); VS.month = TODAY.getMonth(); setTab('month'); break;
     // 긴급 조치
-    case 'emg': modal(`<h2>긴급 상황 조치</h2><form class="form" id="emgform" data-id="${b.dataset.id}"><div class="full checks"><label><input type="radio" name="emst" value="확인중" checked> 확인 중 (계속 대응)</label><label><input type="radio" name="emst" value="조치완료"> 조치 완료</label></div><label class="full">조치 내용<textarea id="em-memo" rows="3" required placeholder="예: 보호자 통화, 119 출동 확인, 병원 이송"></textarea></label><div class="full mact"><button type="button" class="btn" data-act="mclose">닫기</button><button class="btn pri" type="submit">저장</button></div></form>`); break;
+    case 'emg': modal(`<h2>긴급 상황 조치</h2><form class="form" id="emgform" data-id="${b.dataset.id}"><div class="full checks"><label><input type="radio" name="emst" value="확인중" checked> 확인 중 (계속 대응)</label><label><input type="radio" name="emst" value="조치완료"> 조치 완료</label></div><label class="full">조치 내용 ${STATE.ai && STATE.ai.enabled ? `<button type="button" class="btn sm aidraftbtn" data-act="ai-draft" data-kind="emg" data-id="${b.dataset.id}">AI 초안</button>` : ''}<textarea id="em-memo" rows="3" required placeholder="예: 보호자 통화, 119 출동 확인, 병원 이송"></textarea></label><div class="full mact"><button type="button" class="btn" data-act="mclose">닫기</button><button class="btn pri" type="submit">저장</button></div></form>`); break;
     // 월간 계획
     case 'pprev': VS.pym = addMonths(VS.pym, -1); VS.pcell = null; render(); break;
     case 'pnext': VS.pym = addMonths(VS.pym, 1); VS.pcell = null; render(); break;
